@@ -204,7 +204,7 @@ def _(mo):
     mo.md(
         r"""
         On remarque un déséquilibre dans le jeu de données : 88,3% des personnes n'ont pas souscrit à l'offre proposée par la banque.  
-        Avant de constituer nos ensembles d'entraînement et de test, nous allons essayer de pallier ce déséquilibre. En général, un déséquilibre de classe peut déteriorer la performance de la classe minoritaire. 
+        Avant de constituer nos ensembles d'entraînement et de test, nous allons essayer de voir si pallier ce déséquilibre améliore la performance du modèle. En effet, un déséquilibre de classe pourrait déteriorer la performance de la classe minoritaire. 
         Nous allons constituer deux jeux d'entrainement et de test : un jeu déséquilibré et un jeu rééquilibré avec la technique SMOTE  
         SMOTE (Synthetic Minority Over-sampling TEchnique) est une technique de sur-échantillonnage utilisée pour traiter le déséquilibre de classes dans les ensembles de données. Elle fonctionne comme suivant:  
         - **Identification des voisins les plus proches :**  Pour chaque exemple de classe minoritaire, SMOTE identifie ses k plus proches voisins (généralement k=5)  
@@ -217,10 +217,7 @@ def _(mo):
 @app.cell
 def _(X, nb_no, nb_yes, y):
     from sklearn.model_selection import train_test_split
-    # On import SMOTENC pour gérer les données mixtes
     from imblearn.over_sampling import SMOTE
-
-    # Transformation des variables de type "object" en variable catégorielle
 
 
     # Division en jeu d'entraînement et de test
@@ -271,8 +268,8 @@ def _(X_test, X_train, X_train_smote, y_test, y_train, y_train_smote):
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import accuracy_score
 
-    model, model_smote = (LogisticRegression(max_iter=5000, tol=0.001, solver='sag', verbose=True),
-                          LogisticRegression(max_iter=5000, tol=0.001, solver='sag', verbose=True)
+    model, model_smote = (LogisticRegression(max_iter=5000, tol=0.001, solver='saga', verbose=True),
+                          LogisticRegression(max_iter=5000, tol=0.001, solver='saga', verbose=True)
                          )
     model.fit(X_train, y_train)
     model_smote.fit(X_train_smote, y_train_smote)
@@ -286,7 +283,6 @@ def _(X_test, X_train, X_train_smote, y_test, y_train, y_train_smote):
     accuracy_smote = accuracy_score(y_test, y_pred_smote)
     print("Accuracy sans SMOTE", accuracy)
     print("Accuracy avec SMOTE", accuracy_smote)
-
     return (
         LogisticRegression,
         accuracy,
@@ -303,8 +299,9 @@ def _(X_test, X_train, X_train_smote, y_test, y_train, y_train_smote):
 def _(mo):
     mo.md(
         r"""
-        Nous remarquons ici que les deux modèles ont la même performance au millième près. Il n'y a donc a priori pas d'effet d'augmentation de la performance avec la méthode SMOTE. En revanche, dans la cellule ci-dessus, le second modèle utilisant la méthode SMOTE n'a pas encore convergé, ce qui signifie que la précision peut encore augmenter. Il faut néanmoins faire attention à ne pas tomber dans un cas d'overfitting.  
-
+        Nous remarquons ici que le modèle sans SMOTE obtient de meilleures performances comparé au modèle avec SMOTE. Cela est probablement dû au fait que les valeurs générées par SMOTE pour pallier le déséquilibre de classe introduisent du bruit.  
+        Ce point montre donc toute l'importance de bien comprendre les données métier : générer de nouvelles données simplement à partir des plus proches voisins déteriore la performance.  
+        Pour augmenter les performance du modèle, il faudrait introduire plus de données de personnes ayant souscrit au produit.
         """
     )
     return
@@ -335,13 +332,182 @@ def _(confusion_matrix, plt, sns, y_pred_smote, y_test):
     plt.xlabel('Prédictions')
     plt.ylabel('Vraies valeurs')
     plt.title('Matrice de Confusion')
-
     return (confusion_mat_smote,)
 
 
 @app.cell
+def _(mo):
+    mo.md(r"""Bien que notre modèle sans SMOTE ait atteint une meilleure précision que le modèle avec SMOTE, on remarque en fait que ce premier parvient entièrement à classer les personnes n'ayant pas souscrit au produit, mais ne parvient quasiment pas à classer les personnes ayant souscrit au produit. Au contraire, malgré sa moins bonne performance générale, le deuxième modèle avec SMOTE parvient à classer la plupart des personnes ayant souscrit au produit.""")
+    return
+
+
+@app.cell
 def _(accuracy, mo):
-    mo.md(f"""Notre modèle de base atteint donc une précision de {round(accuracy,3)}%. Ce résultat est plutôt correct. Nous allons voir si l'on peut avoir de meilleurs résultats avec une modification des hyperparamètres.""")
+    mo.md(f"""Notre modèle de base atteint donc une précision de {round(accuracy*100,2)}%. Ce résultat est plutôt correct. Nous allons voir si l'on peut avoir de meilleurs résultats avec une modification des hyperparamètres.""")
+    return
+
+
+@app.cell
+def _(LogisticRegression, X_test, X_train, y_train):
+    from sklearn.model_selection import StratifiedKFold, GridSearchCV
+    import numpy as np
+
+    from sklearn.model_selection import cross_val_score
+
+    # Nombre de folds pour la validation croisée
+    k = 5
+
+    _model = LogisticRegression(max_iter=5000, solver='saga')
+
+    # Grille d'hyperparamètres à explorer
+    param_grid = {'C': [0.001, 0.01, 0.1]}
+
+    # Création du cross-validator
+    skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=42)
+
+    # Création du modèle avec recherche d'hyperparamètres
+    grid_search = GridSearchCV(_model, param_grid, cv=skf)
+
+    # Entraînement du modèle
+    grid_search.fit(X_train, y_train)
+
+    # Meilleurs hyperparamètres et meilleur score
+    print("Meilleurs hyperparamètres :", grid_search.best_params_)
+    print("Meilleur score :", grid_search.best_score_)
+
+    # Utilisation du meilleur modèle pour faire des prédictions sur un nouvel ensemble de données (si nécessaire)
+    best_model = grid_search.best_estimator_
+    _y_pred = best_model.predict(X_test)
+    return (
+        GridSearchCV,
+        StratifiedKFold,
+        best_model,
+        cross_val_score,
+        grid_search,
+        k,
+        np,
+        param_grid,
+        skf,
+    )
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        Nous n'obtenons pas de bien meilleures performances avec du fine-tuning sur une régression logistique (88,7% précision et C = 0.001)  
+        Essayons un modèle Random Forest
+        """
+    )
+    return
+
+
+@app.cell
+def _(
+    StratifiedKFold,
+    X_test,
+    X_train,
+    confusion_matrix,
+    cross_val_score,
+    plt,
+    sns,
+    y_test,
+    y_train,
+):
+    from sklearn.ensemble import RandomForestClassifier
+
+    # Créer un modèle Random Forest
+    _model = RandomForestClassifier(n_estimators=100, random_state=42)
+
+    # Validation croisée stratifiée
+    _cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+    _model.fit(X_train, y_train)
+
+    _y_pred = _model.predict(X_test)
+
+    _scores = cross_val_score(_model, X_test, y_test, cv=_cv, scoring='accuracy')
+    print("Accuracy: %0.2f (+/- %0.2f)" % (_scores.mean(), _scores.std() * 2))
+
+    _confusion_mat = confusion_matrix(y_test, _y_pred)
+    sns.heatmap(_confusion_mat, annot=True, fmt='d', cmap='Blues')
+
+
+    plt.xlabel('Prédictions')
+    plt.ylabel('Vraies valeurs')
+    plt.title('Matrice de Confusion')
+    return (RandomForestClassifier,)
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        L'algorithme Random Forest performe mieux que la régression logistique.  
+        En observant la matrice de confusion, on remarque en effet que plus de clients ayant réellement souscrit à l'offre (Vraies valeurs = 1) ont été correctement prédits.  
+        En revanche, on obtient également plus d'erreur parmi les clients n'ayant pas souscrit à l'offre.
+
+        Essayons d'améliorer la performance de cet algorithme avec du fine tuning.
+        """
+    )
+    return
+
+
+@app.cell
+def _(
+    GridSearchCV,
+    RandomForestClassifier,
+    StratifiedKFold,
+    X_test,
+    X_train,
+    confusion_matrix,
+    cross_val_score,
+    grid_search,
+    plt,
+    sns,
+    y_test,
+    y_train,
+):
+    _param_grid = {
+        'n_estimators': [100, 200, 300],
+        'max_depth': [None, 5, 10],
+        'min_samples_split': [2, 5, 10]
+    }
+
+    # Créer le modèle
+    _skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    _rf = RandomForestClassifier()
+
+    # Utiliser GridSearchCV pour trouver les meilleurs hyperparamètres
+    _grid_search = GridSearchCV(estimator=_rf, param_grid=_param_grid, cv=_skf)
+    _grid_search.fit(X_train, y_train)
+
+    # Afficher les meilleurs hyperparamètres
+    print(_grid_search.best_params_)
+    _model = grid_search.best_estimator_
+
+    _scores = cross_val_score(_model, X_test, y_test, cv=_skf, scoring='accuracy')
+    print("Accuracy: %0.2f (+/- %0.2f)" % (_scores.mean(), _scores.std() * 2))
+
+    _y_pred = _model.predict(X_test)
+    _confusion_mat = confusion_matrix(y_test, _y_pred)
+    sns.heatmap(_confusion_mat, annot=True, fmt='d', cmap='Blues')
+
+
+    plt.xlabel('Prédictions')
+    plt.ylabel('Vraies valeurs')
+    plt.title('Matrice de Confusion')
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        En imposant des hyper-paramètres prédéfinis, on n'augmente pas la performance du modèle.  
+        On obtient finalement une performance de 90% avec un Random Forest, ce qui est acceptable.
+        """
+    )
     return
 
 
